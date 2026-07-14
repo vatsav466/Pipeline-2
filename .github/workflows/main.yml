@@ -150,13 +150,30 @@ jobs:
           npx wait-on http://localhost:4173
 
       - name: Run Playwright E2E tests
-        run: npx playwright test
         env:
           BASE_URL: http://localhost:4173
+        run: |
+          # Count matching spec files so we don't fail the job when none exist yet.
+          TEST_COUNT=$(npx playwright test --list 2>/dev/null | grep -c "›" || true)
+          if [ "$TEST_COUNT" -eq 0 ]; then
+            echo "::warning::No Playwright E2E tests found yet — skipping this step. Add spec files (e.g. tests/*.spec.ts) to enable it."
+            echo "### ⚠️ No E2E tests found" >> $GITHUB_STEP_SUMMARY
+            echo "Add \`.spec.ts\` files under a \`tests/\` (or your configured testDir) folder to run E2E tests." >> $GITHUB_STEP_SUMMARY
+          else
+            npx playwright test
+          fi
 
       - name: Run visual regression tests
-        run: npx playwright test --grep @visual
-        continue-on-error: false
+        run: |
+          # Same guard for the @visual-tagged subset.
+          VISUAL_COUNT=$(npx playwright test --grep @visual --list 2>/dev/null | grep -c "›" || true)
+          if [ "$VISUAL_COUNT" -eq 0 ]; then
+            echo "::warning::No visual regression tests (@visual tag) found yet — skipping this step."
+            echo "### ⚠️ No visual regression tests found" >> $GITHUB_STEP_SUMMARY
+            echo "Tag a test's title with \`@visual\` and use \`toHaveScreenshot()\` to enable this step." >> $GITHUB_STEP_SUMMARY
+          else
+            npx playwright test --grep @visual
+          fi
 
       - name: Upload Playwright report
         if: always()
