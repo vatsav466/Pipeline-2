@@ -37,7 +37,20 @@ jobs:
         run: npm ci
 
       - name: Run ESLint
-        run: npm run lint
+        run: |
+          # Repo's eslint config is committed as "eslintrc.cjs" (no leading dot),
+          # which ESLint 8 won't auto-discover. Point at it explicitly, falling
+          # back to the dotted name if that's what's present.
+          if [ -f ".eslintrc.cjs" ]; then
+            CONFIG=".eslintrc.cjs"
+          elif [ -f "eslintrc.cjs" ]; then
+            CONFIG="eslintrc.cjs"
+          else
+            echo "No eslintrc.cjs config file found in repo root!" >&2
+            exit 1
+          fi
+          echo "Using ESLint config: $CONFIG"
+          npx eslint . --ext ts,tsx --config "$CONFIG" --report-unused-disable-directives --max-warnings 0
 
       - name: Run unit tests with coverage
         run: npm run test -- --coverage || echo "No unit test script found, skipping"
