@@ -1,29 +1,32 @@
-# ---------- Stage 1: Build the React app ----------
+# ---------------------------------------------------------
+# Stage 1: Build the React (Vite) app
+# ---------------------------------------------------------
 FROM node:20-alpine AS build
+
 WORKDIR /app
 
-# Install deps first (cached layer unless package*.json changes)
-COPY package*.json ./
+# Install deps first (better layer caching)
+COPY package.json package-lock.json ./
 RUN npm ci
 
 # Copy the rest of the source and build
 COPY . .
 RUN npm run build
 
-# ---------- Stage 2: Serve with nginx ----------
-FROM nginx:1.27-alpine AS production
+# ---------------------------------------------------------
+# Stage 2: Serve the built app with nginx
+# ---------------------------------------------------------
+FROM nginx:alpine
 
-# Remove default nginx site config and drop in ours
-RUN rm -f /etc/nginx/conf.d/default.conf
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Remove default nginx static assets
+RUN rm -rf /usr/share/nginx/html/*
 
-# Copy the built static files from the build stage
+# Copy build output from stage 1
 COPY --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 5378
+# Use your repo's own nginx.conf (already present in your project)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Basic healthcheck so `docker ps` / orchestrators can see container health
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q --spider http://localhost:5378/ || exit 1
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
