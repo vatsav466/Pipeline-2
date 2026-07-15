@@ -40,9 +40,6 @@ jobs:
         id: eslint
         continue-on-error: true
         run: |
-          # Repo's eslint config is committed as "eslintrc.cjs" (no leading dot),
-          # which ESLint 8 won't auto-discover. Point at it explicitly, falling
-          # back to the dotted name if that's what's present.
           if [ -f ".eslintrc.cjs" ]; then
             CONFIG=".eslintrc.cjs"
           elif [ -f "eslintrc.cjs" ]; then
@@ -153,24 +150,20 @@ jobs:
         env:
           BASE_URL: http://localhost:4173
         run: |
-          # Count matching spec files so we don't fail the job when none exist yet.
           TEST_COUNT=$(npx playwright test --list 2>/dev/null | grep -c "›" || true)
           if [ "$TEST_COUNT" -eq 0 ]; then
-            echo "::warning::No Playwright E2E tests found yet — skipping this step. Add spec files (e.g. tests/*.spec.ts) to enable it."
+            echo "::warning::No Playwright E2E tests found yet — skipping this step."
             echo "### ⚠️ No E2E tests found" >> $GITHUB_STEP_SUMMARY
-            echo "Add \`.spec.ts\` files under a \`tests/\` (or your configured testDir) folder to run E2E tests." >> $GITHUB_STEP_SUMMARY
           else
             npx playwright test
           fi
 
       - name: Run visual regression tests
         run: |
-          # Same guard for the @visual-tagged subset.
           VISUAL_COUNT=$(npx playwright test --grep @visual --list 2>/dev/null | grep -c "›" || true)
           if [ "$VISUAL_COUNT" -eq 0 ]; then
             echo "::warning::No visual regression tests (@visual tag) found yet — skipping this step."
             echo "### ⚠️ No visual regression tests found" >> $GITHUB_STEP_SUMMARY
-            echo "Tag a test's title with \`@visual\` and use \`toHaveScreenshot()\` to enable this step." >> $GITHUB_STEP_SUMMARY
           else
             npx playwright test --grep @visual
           fi
@@ -209,12 +202,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Logs into GHCR using GitHub's own auto-generated token —
+      # no manual username/password needed for GHCR.
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # If you ALSO need to push to a separate/private registry,
+      # store creds as repo secrets (Settings > Secrets and variables > Actions)
+      # and uncomment this block — never hardcode credentials here.
+      # - name: Log in to private registry
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: your.registry.example.com
+      #     username: ${{ secrets.REGISTRY_USERNAME }}
+      #     password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Extract Docker metadata
         id: meta
@@ -246,10 +251,16 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Deploy new image
+        env:
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
         run: |
           echo "Deploying image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
           # Replace this with your actual deploy step, e.g.:
           #   - SSH into your server and `docker pull` + `docker compose up -d`
           #   - Trigger a redeploy on Render/Railway/Fly.io via their CLI or webhook
           #   - kubectl set image deployment/... on a k8s cluster
+          #
+          # Credentials for the deploy target should live in repo Secrets
+          # (DEPLOY_USER / DEPLOY_PASSWORD above), never typed into this file.
           echo "Add your deployment command here."
