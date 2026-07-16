@@ -10,7 +10,9 @@ on:
 env:
   NODE_VERSION: '20'
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # Hardcoded lowercase — Docker rejects image names with uppercase letters,
+  # and your repo name (vatsav466/Pipeline-2) has a capital "P".
+  IMAGE_NAME: vatsav466/pipeline-2
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -209,11 +211,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Docker image names must be all lowercase — GitHub repo names can have
+      # capital letters (e.g. "vatsav466/Pipeline-2"), so we normalize it here
+      # once and reuse it in every step below instead of github.repository directly.
+      - name: Set lowercase image name
+        run: echo "IMAGE_NAME_LOWER=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest
@@ -238,18 +246,23 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
+      # Same lowercasing as the build job — env vars set via GITHUB_ENV
+      # don't carry over between jobs, so this must be repeated here.
+      - name: Set lowercase image name
+        run: echo "IMAGE_NAME_LOWER=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: "165.101.248.89"
-          username: "cccdev1"
-          password: "QuantyxAlgoBSK@70"
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
           script: |
             # Log in to GHCR on the server (needed if the package is private)
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             # Pull the freshly built image
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
 
             # Remove the old container if it exists
             docker stop pipeline-ui || true
@@ -260,7 +273,7 @@ jobs:
               --name pipeline-ui \
               --restart unless-stopped \
               -p 5378:5378 \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
 
             # Clean up old dangling images to save disk space
             docker image prune -f
