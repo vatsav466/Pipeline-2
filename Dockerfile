@@ -27,6 +27,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Use your repo's own nginx.conf (already present in your project)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+# Must match the "listen" port inside nginx.conf (5378)
+EXPOSE 5378
 
 CMD ["nginx", "-g", "daemon off;"]
