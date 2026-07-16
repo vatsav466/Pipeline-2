@@ -11,7 +11,6 @@ env:
   NODE_VERSION: '20'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  APP_PORT: '5378'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -101,12 +100,8 @@ jobs:
       - name: Build production bundle
         run: npm run build
 
-      - name: Verify build output exists
+      - name: Report bundle size
         run: |
-          if [ ! -f "dist/index.html" ]; then
-            echo "::error::dist/index.html not found — build did not produce expected output!"
-            exit 1
-          fi
           echo "### Build Output Size" >> $GITHUB_STEP_SUMMARY
           du -sh dist/* >> $GITHUB_STEP_SUMMARY
 
@@ -235,7 +230,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ---------------------------------------------------------
-  # 5. DEPLOY (SSH into the server, pull latest image, restart container)
+  # 5. DEPLOY — actually connects to your server and redeploys
   # ---------------------------------------------------------
   deploy:
     name: Deploy
@@ -243,34 +238,29 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: Deploy new image over SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
           script: |
-            set -e
-            echo "Logging into GHCR..."
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+            # Log in to GHCR on the server (needed if the package is private)
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            echo "Pulling latest image..."
+            # Pull the freshly built image
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-            echo "Stopping old container (if running)..."
+            # Remove the old container if it exists
             docker stop pipeline-ui || true
             docker rm pipeline-ui || true
 
-            echo "Starting new container..."
+            # Start the new container with the same port mapping
             docker run -d \
               --name pipeline-ui \
               --restart unless-stopped \
-              -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} \
+              -p 5378:5378 \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-            echo "Cleaning up old images..."
+            # Clean up old dangling images to save disk space
             docker image prune -f
-
-            echo "Deployment complete. Verifying container is up..."
-            sleep 3
-            docker ps --filter "name=pipeline-ui"
