@@ -276,29 +276,44 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
           port: 22
+          # Pass the password in as a real remote env var instead of
+          # interpolating it into the script text — avoids quoting/escaping
+          # bugs if the password ever contains $, ", `, etc.
+          envs: DEPLOY_PASSWORD
           script: |
-            # PREFERRED FIX (do once, then remove "sudo" below entirely):
-            #   ssh in and run: sudo usermod -aG docker ${{ secrets.DEPLOY_USER }}
-            # Until then, this authenticates sudo once up front so the
-            # docker commands below don't each need a password prompt.
-            echo "${{ secrets.DEPLOY_PASSWORD }}" | sudo -S -v
+            # PREFERRED FIX (do this once, then delete every "sudo"/"run_sudo"
+            # below and the DEPLOY_PASSWORD sudo dance entirely):
+            #   ssh in and run: sudo usermod -aG docker $USER
+            #   then log out/in once so the group membership takes effect.
+            # Until then, this helper re-authenticates sudo on EVERY call
+            # instead of relying on sudo's cached timestamp — that cache
+            # was the actual bug: it expires (often in under 5 min) while
+            # `docker pull` is still downloading layers, so the LAST sudo
+            # command in the script (image prune) had no valid credential
+            # left and no TTY to prompt for one.
+            run_sudo() {
+              echo "$DEPLOY_PASSWORD" | sudo -S "$@"
+            }
+
+            # Sanity-check sudo works before doing anything else.
+            run_sudo -v
 
             # Log in to GHCR on the server (needed if the package is private)
-            sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin <<< "${{ secrets.GHCR_PAT }}"
+            run_sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin <<< "${{ secrets.GHCR_PAT }}"
 
             # Pull the freshly built image
-            sudo docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
+            run_sudo docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
 
             # Remove the old container if it exists
-            sudo docker stop pipeline-ui || true
-            sudo docker rm pipeline-ui || true
+            run_sudo docker stop pipeline-ui || true
+            run_sudo docker rm pipeline-ui || true
 
             # Start the new container with the same port mapping
-            sudo docker run -d \
+            run_sudo docker run -d \
               --name pipeline-ui \
               --restart unless-stopped \
               -p 5378:5378 \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
 
             # Clean up old dangling images to save disk space
-            sudo docker image prune -f
+            run_sudo docker image prune -f
