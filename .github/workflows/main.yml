@@ -270,6 +270,13 @@ jobs:
           echo "All required secrets are present."
 
       - name: Deploy to server via SSH
+        env:
+          # This is what actually makes ssh-action's `envs:` list below work —
+          # "envs: DEPLOY_PASSWORD" only forwards a variable of that name if
+          # one exists in the step's env. Without this block $DEPLOY_PASSWORD
+          # is empty on the remote side, so every sudo -S call gets a blank
+          # password — exactly the "no password was provided" loop you saw.
+          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
