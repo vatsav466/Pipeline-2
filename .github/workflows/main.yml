@@ -277,22 +277,28 @@ jobs:
           password: ${{ secrets.DEPLOY_PASSWORD }}
           port: 22
           script: |
+            # PREFERRED FIX (do once, then remove "sudo" below entirely):
+            #   ssh in and run: sudo usermod -aG docker ${{ secrets.DEPLOY_USER }}
+            # Until then, this authenticates sudo once up front so the
+            # docker commands below don't each need a password prompt.
+            echo "${{ secrets.DEPLOY_PASSWORD }}" | sudo -S -v
+
             # Log in to GHCR on the server (needed if the package is private)
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin <<< "${{ secrets.GHCR_PAT }}"
 
             # Pull the freshly built image
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
+            sudo docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
 
             # Remove the old container if it exists
-            docker stop pipeline-ui || true
-            docker rm pipeline-ui || true
+            sudo docker stop pipeline-ui || true
+            sudo docker rm pipeline-ui || true
 
             # Start the new container with the same port mapping
-            docker run -d \
+            sudo docker run -d \
               --name pipeline-ui \
               --restart unless-stopped \
               -p 5378:5378 \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
 
             # Clean up old dangling images to save disk space
-            docker image prune -f
+            sudo docker image prune -f
