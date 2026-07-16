@@ -244,6 +244,10 @@ jobs:
     name: Deploy
     needs: docker-build-and-push
     runs-on: ubuntu-latest
+    # If DEPLOY_HOST etc. were added under Settings > Environments > <name>
+    # instead of the plain repo Secrets tab, uncomment the next line and
+    # put that environment's exact name here, or the job can't see them.
+    # environment: production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       # Same lowercasing as the build job — env vars set via GITHUB_ENV
@@ -251,12 +255,27 @@ jobs:
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LOWER=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
+      - name: Verify required secrets are set
+        run: |
+          missing=0
+          [ -z "${{ secrets.DEPLOY_HOST }}" ] && echo "::error::DEPLOY_HOST secret is missing or empty" && missing=1
+          [ -z "${{ secrets.DEPLOY_USER }}" ] && echo "::error::DEPLOY_USER secret is missing or empty" && missing=1
+          [ -z "${{ secrets.DEPLOY_PASSWORD }}" ] && echo "::error::DEPLOY_PASSWORD secret is missing or empty" && missing=1
+          [ -z "${{ secrets.GHCR_PAT }}" ] && echo "::error::GHCR_PAT secret is missing or empty" && missing=1
+          if [ "$missing" -eq 1 ]; then
+            echo "Add the missing secret(s) under Settings > Secrets and variables > Actions > Secrets tab (repository secrets)."
+            echo "If they already exist there but this still fails, they may have been added under Settings > Environments instead — uncomment the 'environment:' line above this step and set it to that environment's name."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
       - name: Deploy to server via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
+          port: 22
           script: |
             # Log in to GHCR on the server (needed if the package is private)
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
